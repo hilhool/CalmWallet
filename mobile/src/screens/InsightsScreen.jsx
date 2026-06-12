@@ -1,14 +1,23 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import Animated, { FadeInDown } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated'
 import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg'
 import { colors, emotions, type, space, formatAmount } from '../theme'
 import { settle } from '../theme/motion'
+import { tapMedium } from '../theme/haptics'
+import { api } from '../api/client'
 import BreathingDot from '../components/BreathingDot'
+import PressableScale from '../components/PressableScale'
 
 const DAYS = 14
 const WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота']
+const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
+
+function weekLabel(weekStart) {
+  const d = new Date(weekStart)
+  return `неделя с ${d.getDate()} ${MONTHS_RU[d.getMonth()]}`
+}
 
 // Сглаживание Catmull-Rom → Безье: линия трат течёт, а не ломается
 function smoothPath(pts) {
@@ -26,6 +35,124 @@ function smoothPath(pts) {
     d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
   }
   return d
+}
+
+// Недельное письмо от коуча: headline → три факта → вопрос для рефлексии.
+function WeeklyBlock({ transactions }) {
+  const [history, setHistory] = useState(null) // null = грузим, [] = пусто
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    api.getWeeklyInsights()
+      .then(setHistory)
+      .catch(() => setHistory([]))
+  }, [])
+
+  // паттернов из пары дней не вытащить — честно просим ещё данных
+  const enoughData = useMemo(() => {
+    const days = new Set(
+      (transactions || [])
+        .filter((tx) => Date.now() - new Date(tx.created_at).getTime() < 7 * 86400e3)
+        .map((tx) => new Date(tx.created_at).toDateString())
+    )
+    return days.size >= 3
+  }, [transactions])
+
+  const refresh = async () => {
+    if (generating) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const fresh = await api.generateWeeklyInsights()
+      setHistory((prev) => [fresh, ...(prev || []).filter((i) => i.week_start !== fresh.week_start)])
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (history === null) {
+    return (
+      <View style={styles.weeklyLoading}>
+        <BreathingDot size={12} color={emotions.calm.color} />
+      </View>
+    )
+  }
+
+  const current = history[0] || null
+  const previous = history.slice(1)
+
+  if (!current && !enoughData) {
+    return (
+      <View style={styles.weeklyEmpty}>
+        <Text style={styles.weeklyEmptyText}>
+          Добавь ещё несколько трат,{'\n'}и я найду паттерны
+        </Text>
+      </View>
+    )
+  }
+
+  return (
+    <View>
+      {current ? (
+        <Animated.View entering={FadeIn.duration(settle.duration)}>
+          <Text style={styles.kicker}>{weekLabel(current.week_start)}</Text>
+          <Text style={styles.headline}>{current.headline}</Text>
+
+          <View style={styles.insightList}>
+            {(current.insights || []).map((item, i) => (
+              <View key={i} style={styles.insightItem}>
+                <Text style={styles.insightHighlight}>{item.highlight}</Text>
+                <Text style={styles.insightText}>{item.text}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.questionWrap}>
+            <Text style={styles.question}>{current.question}</Text>
+          </View>
+        </Animated.View>
+      ) : (
+        <View>
+          <Text style={styles.kicker}>эта неделя</Text>
+          <Text style={styles.headline}>Посмотрим, что неделя говорит о тебе?</Text>
+        </View>
+      )}
+
+      {error && <Text style={styles.weeklyError}>{error}</Text>}
+
+      <PressableScale
+        style={styles.refreshButton}
+        haptic={tapMedium}
+        onPress={refresh}
+        disabled={generating}
+      >
+        {generating ? (
+          <BreathingDot size={9} color={colors.inkSoft} />
+        ) : (
+          <Text style={styles.refreshText}>{current ? 'обновить инсайты' : 'найти паттерны'}</Text>
+        )}
+      </PressableScale>
+
+      {previous.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.historyScroll}
+          contentContainerStyle={styles.historyContent}
+        >
+          {previous.map((item) => (
+            <View key={item.id} style={styles.historyCard}>
+              <Text style={styles.historyWeek}>{weekLabel(item.week_start)}</Text>
+              <Text style={styles.historyHeadline} numberOfLines={4}>{item.headline}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  )
 }
 
 export default function InsightsScreen({ transactions }) {
@@ -122,6 +249,10 @@ export default function InsightsScreen({ transactions }) {
       showsVerticalScrollIndicator={false}
     >
       <Animated.View entering={FadeInDown.duration(settle.duration)}>
+        <WeeklyBlock transactions={transactions} />
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.duration(settle.duration).delay(100)} style={styles.twoWeeks}>
         <Text style={styles.kicker}>две недели</Text>
         <Text style={styles.story}>
           Когда тебе <Text style={{ color: topMeta.color }}>{topMeta.label}</Text>, уходит больше всего —
@@ -227,6 +358,114 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     textTransform: 'uppercase',
     color: colors.inkSoft,
+  },
+  weeklyLoading: {
+    alignItems: 'center',
+    paddingVertical: space(10),
+  },
+  weeklyEmpty: {
+    paddingVertical: space(6),
+  },
+  weeklyEmptyText: {
+    fontFamily: type.display,
+    fontSize: 24,
+    lineHeight: 34,
+    color: colors.inkSoft,
+  },
+  headline: {
+    fontFamily: type.display,
+    fontSize: 30,
+    lineHeight: 40,
+    color: colors.ink,
+    marginTop: space(3),
+  },
+  insightList: {
+    marginTop: space(7),
+    gap: space(6),
+  },
+  insightItem: {},
+  insightHighlight: {
+    fontFamily: type.display,
+    fontSize: 34,
+    lineHeight: 42,
+    color: colors.positive,
+  },
+  insightText: {
+    fontFamily: type.text,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.inkSoft,
+    marginTop: space(1),
+  },
+  questionWrap: {
+    marginTop: space(8),
+    borderLeftWidth: 1.5,
+    borderLeftColor: colors.inkFaint,
+    paddingLeft: space(4),
+  },
+  question: {
+    fontFamily: type.displayItalic,
+    fontSize: 19,
+    lineHeight: 28,
+    color: colors.inkSoft,
+  },
+  weeklyError: {
+    fontFamily: type.text,
+    fontSize: 14,
+    color: colors.alert,
+    marginTop: space(5),
+  },
+  refreshButton: {
+    alignSelf: 'flex-start',
+    height: 44,
+    minWidth: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space(5),
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    marginTop: space(7),
+  },
+  refreshText: {
+    fontFamily: type.textMedium,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  historyScroll: {
+    marginTop: space(7),
+    marginHorizontal: -space(7),
+  },
+  historyContent: {
+    paddingHorizontal: space(7),
+    gap: space(3),
+  },
+  historyCard: {
+    width: 220,
+    padding: space(4),
+    borderRadius: 16,
+    backgroundColor: colors.canvasDeep,
+  },
+  historyWeek: {
+    fontFamily: type.textSemi,
+    fontSize: 11,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    color: colors.inkFaint,
+  },
+  historyHeadline: {
+    fontFamily: type.display,
+    fontSize: 17,
+    lineHeight: 24,
+    color: colors.ink,
+    marginTop: space(2),
+  },
+  twoWeeks: {
+    marginTop: space(12),
+    paddingTop: space(8),
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
   },
   story: {
     fontFamily: type.display,

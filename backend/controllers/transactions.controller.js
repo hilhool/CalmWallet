@@ -36,14 +36,24 @@ async function createTransaction(req, res) {
 
   let ai_response = null;
   try {
-    // последние траты дают коучу контекст паттерна, а не одну изолированную покупку
-    const history = await db.query(
-      `SELECT amount, category, emotional_state
-       FROM transactions
-       WHERE user_id = $1 AND deleted_at IS NULL
-       ORDER BY created_at DESC LIMIT 5`,
-      [req.userId]
-    );
+    // последние траты и свежий чек-ин дают коучу контекст паттерна,
+    // а не одну изолированную покупку
+    const [history, checkin] = await Promise.all([
+      db.query(
+        `SELECT amount, category, emotional_state, triggered_by
+         FROM transactions
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY created_at DESC LIMIT 5`,
+        [req.userId]
+      ),
+      db.query(
+        `SELECT mood_score, anxiety_score, note, created_at
+         FROM checkins
+         WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC LIMIT 1`,
+        [req.userId]
+      ),
+    ]);
     ai_response = await analyzeTransaction({
       amount: parsedAmount,
       category,
@@ -51,6 +61,7 @@ async function createTransaction(req, res) {
       triggered_by,
       note: trimmedNote,
       history: history.rows,
+      checkin: checkin.rows[0] || null,
     });
   } catch (geminiErr) {
     logger.error({ err: geminiErr }, 'Gemini error');

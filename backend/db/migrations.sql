@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- недельные AI-инсайты; повторная генерация на той же неделе перезаписывает строку
+CREATE TABLE IF NOT EXISTS weekly_insights (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  week_start DATE NOT NULL,
+  headline TEXT NOT NULL,
+  insights JSONB NOT NULL,
+  question TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (user_id, week_start)
+);
+
 -- soft delete: записи не удаляются физически
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 

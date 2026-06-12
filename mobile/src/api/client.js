@@ -60,6 +60,8 @@ const ERROR_RU = {
   'Password must be at least 8 characters and contain a letter and a digit':
     'пароль — минимум 8 символов, и в нём нужны буква и цифра',
   'Email and password are required': 'нужны и почта, и пароль',
+  'not_enough_data': 'Добавь ещё несколько трат, и я найду паттерны',
+  'ai_unavailable': 'коуч сейчас недоступен — попробуй чуть позже',
 }
 
 async function request(path, options = {}, isRetry = false) {
@@ -99,4 +101,7 @@ export const api = {
   getTransactions:   () => request('/api/transactions?limit=200'),
   createTransaction: (body) => request('/api/transactions', { method: 'POST', body: JSON.stringify(body) }),
   deleteTransaction: (id) => request(`/api/transactions/${id}`, { method: 'DELETE' }),
+
+  getWeeklyInsights:      () => request('/api/insights/weekly'),
+  generateWeeklyInsights: () => request('/api/insights/weekly', { method: 'POST' }),
 }

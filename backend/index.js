@@ -1,9 +1,15 @@
-// Bypass system/env proxy for all fetch() calls — prevents HTTPS_PROXY/HTTP_PROXY from
-// interfering with Gemini API auth (equivalent to httpx trust_env=False)
-const { Agent, setGlobalDispatcher } = require('undici');
-setGlobalDispatcher(new Agent());
-
 const env = require('./config/env');
+
+// Gemini из некоторых регионов недоступен напрямую («User location is not supported»),
+// поэтому при заданном HTTPS_PROXY весь fetch уходит через прокси. Встроенный fetch
+// Node не видит диспетчер пакетного undici — подменяем fetch целиком.
+const { fetch: undiciFetch, Agent, ProxyAgent, setGlobalDispatcher } = require('undici');
+if (env.HTTPS_PROXY) {
+  setGlobalDispatcher(new ProxyAgent(env.HTTPS_PROXY));
+  globalThis.fetch = undiciFetch;
+} else {
+  setGlobalDispatcher(new Agent());
+}
 const logger = require('./logger');
 const express = require('express');
 const helmet = require('helmet');
@@ -14,6 +20,7 @@ const authMiddleware = require('./middleware/auth.middleware');
 const authRoutes = require('./routes/auth.routes');
 const transactionsRoutes = require('./routes/transactions.routes');
 const checkinsRoutes = require('./routes/checkins.routes');
+const insightsRoutes = require('./routes/insights.routes');
 
 const app = express();
 
@@ -45,6 +52,7 @@ app.get('/health', async (req, res) => {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/transactions', authMiddleware, transactionsRoutes);
 app.use('/api/checkins', authMiddleware, checkinsRoutes);
+app.use('/api/insights', authMiddleware, insightsRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
