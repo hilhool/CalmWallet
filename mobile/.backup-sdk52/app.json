@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "CalmWallet",
+    "slug": "calmwallet",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "backgroundColor": "#F5F0E6",
+    "splash": {
+      "backgroundColor": "#F5F0E6",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "pan"
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}
